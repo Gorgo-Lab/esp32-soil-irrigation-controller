@@ -146,3 +146,11 @@ docker run --rm -v "$(pwd)":/root/src znibb/wireviz:latest "wireviz DOCS/wiring.
 **Cosa succede se il cutoff di sicurezza (`max_on_ms`) spegne la pompa mentre il terreno è ancora "secco"**: la pompa **non riparte da sola**. Il trigger che l'accende scatta solo sulla transizione bagnato→secco, non a livello continuo — se il sensore non è mai sceso sotto la soglia bagnata, quella transizione non si ripresenta. Serve un ciclo completo (il terreno torna bagnato, poi di nuovo secco) perché la pompa riparta. È il comportamento atteso, non un guasto: se il cutoff scatta spesso, è un segnale che le soglie o il sensore vanno controllati, non che manca un "riavvio automatico" da aggiungere.
 
 Per i TODO aperti (validazione fisica del porting, alimentazione a batteria per il ramo MOSFET, calibrazione soglie, eventuale promozione del 3-sensori), vedi `CLAUDE.md`.
+
+---
+
+## Licenza
+
+Questo progetto è distribuito con licenza MIT (vedi `LICENSE`).
+
+> ⚠️ La licenza **non copre** i datasheet e il materiale di terze parti in `archive/SPEC/` (documentazione del modulo relè Elegoo), inclusi solo come riferimento storico — restano di proprietà dei rispettivi detentori dei diritti.
