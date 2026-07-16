@@ -1,0 +1,146 @@
+metadata:
+  title: Controller Pompa — Setup banco/test (USB + switching 12V/2A)
+  description: >
+    Setup di test da banco: ESP32 alimentato via USB dal Mac, pompa AW500S
+    alimentata da alimentatore switching 12V/2A separato, massa comune tra i
+    due domini. Modalità test firmware: ciclo 5s ON / 5s OFF (ponticello
+    GPIO4→GND).
+  avvertenze: >
+    Pompa AW500S: 19W nominali, ~1.58A a 12V — margine risicato sull'alimentatore
+    switching da 2A (~80% della portata nominale), lo spunto di avviamento del
+    motore può essere più alto del regime: se l'alimentatore va in protezione
+    all'accensione è per questo. Relè invece ampiamente dentro i suoi limiti
+    (dato 3A max). Massa comune OBBLIGATORIA tra GND ESP32 e GND alimentatore
+    switching (W8), altrimenti il segnale relè non è affidabile. Diodo di
+    ricircolo 1N5408 obbligatorio sui terminali pompa (carico induttivo DC).
+    Verificare la polarità +/- della pompa prima di collegare. Non alimentare
+    contemporaneamente VIN (da fonte esterna) e USB sull'ESP32.
+
+connectors:
+  ESP32:
+    type: ESP32 dev board
+    subtype: alimentato via USB dal Mac
+    pinlabels: ['5V', GND, GPIO27, GPIO4]
+    notes: 'Ponticello test mode: collegare GPIO4 a GND (stessa scheda) per ciclo 5s ON / 5s OFF'
+
+  ALIMENTATORE:
+    type: Alimentatore switching
+    subtype: 12V 2A
+    pinlabels: ['+', '-']
+
+  RELAY:
+    type: Relay module
+    subtype: singolo canale, active-low (S / + / -)
+    pinlabels: [S, '+', '-', COM, 'NO']
+
+  POMPA:
+    type: Pompa DC
+    subtype: AW500S, 12V, Hmax 4-6m, Qmax 600-800L/H, 19W / 1.58A
+    pinlabels: ['+', '-']
+
+  DIODO:
+    type: Diodo di ricircolo
+    subtype: 1N5408
+    pinlabels: [K, A]
+    notes: 'Montare direttamente sui terminali della pompa, il più vicino possibile'
+
+cables:
+  W1:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [RD]
+    notes: 'Cavetto Arduino: ESP32 5V (VBUS) → Relay +'
+
+  W2:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [BK]
+    notes: 'Cavetto Arduino: ESP32 GND → Relay -'
+
+  W3:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [YE]
+    notes: 'Cavetto Arduino: ESP32 GPIO27 → Relay S (segnale)'
+
+  W5:
+    wirecount: 1
+    gauge: 0.75 mm2
+    colors: [RD]
+    notes: Alimentatore (+) → Relay COM
+
+  W6:
+    wirecount: 1
+    gauge: 0.75 mm2
+    colors: [RD]
+    notes: Relay NO → Pompa (+)
+
+  W7:
+    wirecount: 1
+    gauge: 0.75 mm2
+    colors: [BK]
+    notes: Pompa (-) → Alimentatore (-)
+
+  W8:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [BK]
+    notes: 'Massa comune OBBLIGATORIA: ESP32 GND → Alimentatore (-)'
+
+  W9:
+    wirecount: 1
+    gauge: 0.5 mm2
+    colors: [RD]
+    notes: 'Diodo catodo (banda) → Pompa (+)'
+
+  W10:
+    wirecount: 1
+    gauge: 0.5 mm2
+    colors: [BK]
+    notes: 'Diodo anodo → Pompa (-)'
+
+connections:
+  -
+    - ESP32: ['5V']
+    - W1: [1]
+    - RELAY: ['+']
+
+  -
+    - ESP32: [GND]
+    - W2: [1]
+    - RELAY: ['-']
+
+  -
+    - ESP32: [GPIO27]
+    - W3: [1]
+    - RELAY: [S]
+
+  -
+    - ALIMENTATORE: ['+']
+    - W5: [1]
+    - RELAY: [COM]
+
+  -
+    - RELAY: ['NO']
+    - W6: [1]
+    - POMPA: ['+']
+
+  -
+    - POMPA: ['-']
+    - W7: [1]
+    - ALIMENTATORE: ['-']
+
+  -
+    - ESP32: [GND]
+    - W8: [1]
+    - ALIMENTATORE: ['-']
+
+  -
+    - DIODO: [K]
+    - W9: [1]
+    - POMPA: ['+']
+
+  -
+    - DIODO: [A]
+    - W10: [1]
+    - POMPA: ['-']

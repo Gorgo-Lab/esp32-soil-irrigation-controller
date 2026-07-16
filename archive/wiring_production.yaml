@@ -1,0 +1,194 @@
+metadata:
+  title: Controller Pompa — Cablaggio di produzione
+  description: >
+    Schema di produzione: batteria 12V, buck converter 12V→5V, ESP32,
+    modulo relè singolo canale (S/+/-), pompa 12V con diodo di ricircolo.
+    Convertito da WIRING.md.
+  avvertenze: >
+    Pompa ~3.5-5A @12V, relè Songle SRD-05VDC dato 3A max su carichi induttivi
+    DC (margine risicato/superato: valutare contattore DC 10A+ se i contatti
+    si bruciano). Diodo di ricircolo (W12/W13) obbligatorio contro il back-EMF
+    della pompa. Fusibile 5A obbligatorio sul positivo batteria. Rimuovere
+    eventuale jumper VCC↔JD-VCC sul modulo relè: qui +/- sono alimentati
+    dal buck converter, non c'è isolamento galvanico separato per le bobine.
+
+connectors:
+  BATTERIA:
+    type: Battery
+    subtype: 12V
+    pinlabels: ['+', '-']
+
+  FUSIBILE:
+    type: Fuse
+    subtype: 5A automotive
+    pinlabels: [IN, OUT]
+
+  BUCK:
+    type: Buck converter
+    subtype: 12V → 5V, min 1A
+    pinlabels: [IN+, IN-, 'OUT+', 'OUT-']
+
+  ESP32:
+    type: ESP32 dev board
+    pinlabels: [VIN, GND, GPIO27]
+
+  RELAY:
+    type: Relay module
+    subtype: singolo canale, active-low (S / + / -)
+    pinlabels: [S, '+', '-', COM, 'NO']
+
+  POMPA:
+    type: Pompa DC
+    subtype: 12V
+    pinlabels: ['+', '-']
+
+  DIODO:
+    type: Diodo di ricircolo
+    subtype: 1N5408
+    pinlabels: [K, A]
+    notes: 'Montare direttamente sui terminali della pompa, il più vicino possibile'
+
+cables:
+  W1:
+    wirecount: 1
+    gauge: 1.5 mm2
+    colors: [RD]
+    notes: Batteria (+) → Fusibile IN
+
+  W2:
+    wirecount: 1
+    gauge: 1.5 mm2
+    colors: [RD]
+    notes: Fusibile OUT → Buck IN+
+
+  W3:
+    wirecount: 1
+    gauge: 1.5 mm2
+    colors: [BK]
+    notes: Batteria (-) → Buck IN-
+
+  W4:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [RD]
+    notes: 'Cavetto Arduino: Buck OUT+ → ESP32 VIN'
+
+  W5:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [RD]
+    notes: 'Cavetto Arduino: Buck OUT+ → Relay +'
+
+  W6:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [BK]
+    notes: 'Cavetto Arduino: Buck OUT- → ESP32 GND'
+
+  W7:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [BK]
+    notes: 'Cavetto Arduino: Buck OUT- → Relay -'
+
+  W8:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [YE]
+    notes: 'Cavetto Arduino: ESP32 GPIO27 → Relay S (segnale)'
+
+  W9:
+    wirecount: 1
+    gauge: 1.5 mm2
+    colors: [RD]
+    notes: Batteria (+) dopo fusibile → Relay COM
+
+  W10:
+    wirecount: 1
+    gauge: 1.5 mm2
+    colors: [RD]
+    notes: Relay NO → Pompa (+)
+
+  W11:
+    wirecount: 1
+    gauge: 1.5 mm2
+    colors: [BK]
+    notes: Pompa (-) → Batteria (-) / GND comune
+
+  W12:
+    wirecount: 1
+    gauge: 0.5 mm2
+    colors: [RD]
+    notes: 'Diodo catodo (banda) → Pompa (+)'
+
+  W13:
+    wirecount: 1
+    gauge: 0.5 mm2
+    colors: [BK]
+    notes: 'Diodo anodo → Pompa (-)'
+
+connections:
+  -
+    - BATTERIA: ['+']
+    - W1: [1]
+    - FUSIBILE: [IN]
+
+  -
+    - FUSIBILE: [OUT]
+    - W2: [1]
+    - BUCK: [IN+]
+
+  -
+    - BATTERIA: ['-']
+    - W3: [1]
+    - BUCK: [IN-]
+
+  -
+    - BUCK: ['OUT+']
+    - W4: [1]
+    - ESP32: [VIN]
+
+  -
+    - BUCK: ['OUT+']
+    - W5: [1]
+    - RELAY: ['+']
+
+  -
+    - BUCK: ['OUT-']
+    - W6: [1]
+    - ESP32: [GND]
+
+  -
+    - BUCK: ['OUT-']
+    - W7: [1]
+    - RELAY: ['-']
+
+  -
+    - ESP32: [GPIO27]
+    - W8: [1]
+    - RELAY: [S]
+
+  -
+    - FUSIBILE: [OUT]
+    - W9: [1]
+    - RELAY: [COM]
+
+  -
+    - RELAY: ['NO']
+    - W10: [1]
+    - POMPA: ['+']
+
+  -
+    - POMPA: ['-']
+    - W11: [1]
+    - BATTERIA: ['-']
+
+  -
+    - DIODO: [K]
+    - W12: [1]
+    - POMPA: ['+']
+
+  -
+    - DIODO: [A]
+    - W13: [1]
+    - POMPA: ['-']
