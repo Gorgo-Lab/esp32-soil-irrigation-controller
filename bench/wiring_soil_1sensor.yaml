@@ -1,0 +1,97 @@
+metadata:
+  title: Controller Pompa — Setup banco sensore umidità singolo (ESP32 + Relè + 1x Capacitive Soil Moisture v2.0)
+  description: >
+    Variante semplificata di wiring_soil_3sensor.yaml (3 sensori): un solo
+    sensore capacitivo, alimentato direttamente da un GPIO (nessun
+    transistor di switch necessario, la corrente di un solo sensore è
+    sotto il limite per singolo pin dell'ESP32). Pompa, alimentatore di
+    potenza e diodo di ricircolo NON collegati in questa variante.
+  avvertenze: >
+    Sensore alimentato a 3.3V (non 5V): l'uscita AOUT resta sempre sotto
+    la tensione massima ammessa sul pin ADC dell'ESP32 (3.3V), nessun
+    partitore resistivo necessario. Relè con jumper VCC/JD-VCC inserito
+    (alimentazione unica da ESP32 5V, come in wiring_lab_test.yaml).
+
+connectors:
+  ESP32:
+    type: ESP32 dev board
+    subtype: alimentato via USB (banco)
+    pinlabels: ['5V', '3V3', GND, GPIO25, GPIO27, GPIO32]
+
+  RELAY:
+    type: Relay module
+    subtype: singolo canale, active-low (S / + / -)
+    pinlabels: [S, '+', '-', COM, 'NO']
+
+  SOIL:
+    type: Capacitive Soil Moisture Sensor v2.0
+    subtype: 3.3-5.5V, uscita analogica invertita (secco=tensione alta)
+    pinlabels: [VCC, GND, AOUT]
+
+cables:
+  W1:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [RD]
+    notes: 'Cavetto Arduino: ESP32 5V (VBUS) → Relay + (jumper VCC/JD-VCC inserito sul modulo)'
+
+  W2:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [BK]
+    notes: 'Cavetto Arduino: ESP32 GND → Relay -'
+
+  W3:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [YE]
+    notes: 'Cavetto Arduino: ESP32 GPIO27 → Relay S (segnale, active-low)'
+
+  W4:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [OG]
+    notes: 'ESP32 GPIO25 → Soil VCC (alimentazione diretta, nessun transistor)'
+
+  W5:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [BK]
+    notes: 'Soil GND → ESP32 GND'
+
+  W6:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [GN]
+    notes: 'ESP32 GPIO32 → Soil AOUT (segnale analogico)'
+
+connections:
+  -
+    - ESP32: ['5V']
+    - W1: [1]
+    - RELAY: ['+']
+
+  -
+    - ESP32: [GND]
+    - W2: [1]
+    - RELAY: ['-']
+
+  -
+    - ESP32: [GPIO27]
+    - W3: [1]
+    - RELAY: [S]
+
+  -
+    - ESP32: [GPIO25]
+    - W4: [1]
+    - SOIL: [VCC]
+
+  -
+    - SOIL: [GND]
+    - W5: [1]
+    - ESP32: [GND]
+
+  -
+    - ESP32: [GPIO32]
+    - W6: [1]
+    - SOIL: [AOUT]

@@ -1,0 +1,152 @@
+metadata:
+  title: Controller Pompa — Wiring di riferimento (MOSFET)
+  description: >
+    Topologia di commutazione scelta per il flagship: modulo driver MOSFET
+    (XY-MOS, switch low-side) al posto del relè meccanico. Documenta la parte
+    validata: ESP32 + MOSFET + pompa, alimentati da un alimentatore switching
+    da banco (12V/2A). NON documenta ancora la catena di alimentazione da
+    batteria reale (fusibile + buck converter 12V→5V) che serve per l'uso
+    reale — quella andrà adattata dal ramo relè, vedi archive/WIRING.md per
+    il riferimento concettuale (batteria/fusibile/buck), da ridisegnare per
+    il MOSFET.
+  avvertenze: >
+    Il MOSFET è uno switch LOW-SIDE: OUT+ è collegato internamente in modo
+    permanente a VIN+ (sempre alimentato), il MOSFET commuta solo il ritorno
+    OUT-/VIN-. Topologia diversa dal relè (che commutava il +). Pompa AW500S:
+    19W nominali, ~1.58A a 12V — margine risicato sull'alimentatore switching
+    da 2A, possibile spunto più alto all'avviamento. Diodo di ricircolo 1N5408
+    mantenuto sui terminali pompa anche col MOSFET, a protezione dal back-EMF
+    (verificare comunque se la board ha già un diodo di protezione integrato,
+    non dedurlo dalla sola serigrafia dei pin). Massa comune OBBLIGATORIA tra
+    ESP32 GND, MOSFET GND e Alimentatore (-). Non alimentare contemporaneamente
+    VIN (da fonte esterna) e USB sull'ESP32.
+
+connectors:
+  ESP32:
+    type: ESP32 dev board
+    subtype: alimentato via USB dal Mac
+    pinlabels: [GND, GPIO27, GPIO4]
+    notes: 'Ponticello test mode: collegare GPIO4 a GND (stessa scheda) per ciclo 5s ON / 5s OFF'
+
+  ALIMENTATORE:
+    type: Alimentatore switching
+    subtype: 12V 2A
+    pinlabels: ['+', '-']
+
+  MOSFET:
+    type: Modulo driver MOSFET (XY-MOS)
+    subtype: 'low-side switch, trigger digitale TRIG/PWM (senza potenziometro)'
+    pinlabels: ['VIN+', 'VIN-', 'OUT+', 'OUT-', TRIG, GND]
+    notes: 'TRIG e GND hanno 3 fori ciascuno (elettricamente equivalenti sullo stesso modulo): usarne uno qualsiasi per ciascuno'
+
+  POMPA:
+    type: Pompa DC
+    subtype: AW500S, 12V, Hmax 4-6m, Qmax 600-800L/H, 19W / 1.58A
+    pinlabels: ['+', '-']
+
+  DIODO:
+    type: Diodo di ricircolo
+    subtype: 1N5408
+    pinlabels: [K, A]
+    notes: 'Montare direttamente sui terminali della pompa, il più vicino possibile'
+
+cables:
+  W1:
+    wirecount: 1
+    gauge: 0.75 mm2
+    colors: [RD]
+    notes: 'Alimentatore (+) → MOSFET VIN+'
+
+  W2:
+    wirecount: 1
+    gauge: 0.75 mm2
+    colors: [BK]
+    notes: 'Alimentatore (-) → MOSFET VIN-'
+
+  W3:
+    wirecount: 1
+    gauge: 0.75 mm2
+    colors: [RD]
+    notes: 'MOSFET OUT+ → Pompa (+)'
+
+  W4:
+    wirecount: 1
+    gauge: 0.75 mm2
+    colors: [BK]
+    notes: 'MOSFET OUT- → Pompa (-) — lato commutato dal MOSFET'
+
+  W5:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [YE]
+    notes: 'Cavetto Arduino: ESP32 GPIO27 → MOSFET TRIG (segnale)'
+
+  W6:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [BK]
+    notes: 'Cavetto Arduino: ESP32 GND → MOSFET GND (riferimento segnale)'
+
+  W7:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [BK]
+    notes: 'Massa comune OBBLIGATORIA: ESP32 GND → Alimentatore (-)'
+
+  W8:
+    wirecount: 1
+    gauge: 0.5 mm2
+    colors: [RD]
+    notes: 'Diodo catodo (banda) → Pompa (+)'
+
+  W9:
+    wirecount: 1
+    gauge: 0.5 mm2
+    colors: [BK]
+    notes: 'Diodo anodo → Pompa (-)'
+
+connections:
+  -
+    - ALIMENTATORE: ['+']
+    - W1: [1]
+    - MOSFET: ['VIN+']
+
+  -
+    - ALIMENTATORE: ['-']
+    - W2: [1]
+    - MOSFET: ['VIN-']
+
+  -
+    - MOSFET: ['OUT+']
+    - W3: [1]
+    - POMPA: ['+']
+
+  -
+    - MOSFET: ['OUT-']
+    - W4: [1]
+    - POMPA: ['-']
+
+  -
+    - ESP32: [GPIO27]
+    - W5: [1]
+    - MOSFET: [TRIG]
+
+  -
+    - ESP32: [GND]
+    - W6: [1]
+    - MOSFET: [GND]
+
+  -
+    - ESP32: [GND]
+    - W7: [1]
+    - ALIMENTATORE: ['-']
+
+  -
+    - DIODO: [K]
+    - W8: [1]
+    - POMPA: ['+']
+
+  -
+    - DIODO: [A]
+    - W9: [1]
+    - POMPA: ['-']

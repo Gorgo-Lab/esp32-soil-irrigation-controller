@@ -1,0 +1,218 @@
+# Setup banco: ESP32 + Relè + 3x Capacitive Soil Moisture Sensor v2.0.
+# Pompa/alimentatore/diodo NON collegati: si sente lo scatto del relè per
+# validare la logica prima di introdurre il carico reale.
+# Cablaggio: vedi bench/wiring_soil_3sensor.yaml
+#
+# ASSUNZIONI DA CONFERMARE:
+# - Sensori alimentati a 3.3V (non 5V): l'uscita AOUT resta sempre sotto i
+#   3.3V ammessi sul pin ADC, nessun partitore necessario.
+# - attenuation 12db copre 0-3.3V; se la tua versione di ESPHome/esp-idf
+#   si lamenta, prova 11db (alias storico dello stesso valore).
+#
+# ALIMENTAZIONE A CICLO (duty cycle) DEI SENSORI: i sensori vengono accesi
+# solo per la finestra di lettura (~2.2s) e spenti subito dopo, invece di
+# restare sempre alimentati come fanno molti esempi/tutorial. Motivo:
+# preservare nel tempo le piste capacitive dalla corrosione/elettrolisi
+# dovute a tensione continua in ambiente umido.
+#
+# Modalità DEV/TEST: jumper GPIO4->GND = tempi rapidi per iterare sul banco
+# (lettura ogni 5s, cooldown 5s, cutoff 30s). Jumper rimosso = tempi
+# normali. Stessa convenzione di controller_pompa.yaml.
+#
+# CALIBRAZIONE RICHIESTA:
+# soil_dry_threshold / soil_wet_threshold sono PLACEHOLDER. Flasha, guarda
+# nei log i valori "Soil Moisture N (V)" con sensore in aria secca e poi
+# immerso in acqua/terreno saturo, poi aggiorna le due soglie qui sotto.
+
+substitutions:
+  soil_dry_threshold: "2.5"    # V — sopra = terreno secco (relè ON)
+  soil_wet_threshold: "1.8"    # V — sotto = terreno bagnato (relè OFF)
+  sensor_settle_time: 2s       # assestamento dopo accensione sensori, fisso (non dipende da test/normale)
+  mode_pin: GPIO4              # collegato a GND = test mode, floating = modalità normale
+
+  read_interval_test: "5000"      # ms — banco: lettura ogni 5s
+  read_interval_normal: "600000"  # ms — normale: ogni 10 min
+
+  cooldown_test: "5000"           # ms — banco: 5s
+  cooldown_normal: "300000"       # ms — normale: 5 min
+
+  max_on_test: "30000"            # ms — banco: cutoff sicurezza 30s
+  max_on_normal: "300000"         # ms — normale: cutoff sicurezza 5 min
+
+esphome:
+  name: controller-pompa-soil-bench
+  on_boot:
+    priority: -100
+    then:
+      - if:
+          condition:
+            binary_sensor.is_on: test_mode_sensor
+          then:
+            - globals.set:
+                id: read_interval_ms
+                value: "${read_interval_test}"
+            - globals.set:
+                id: cooldown_ms
+                value: "${cooldown_test}"
+            - globals.set:
+                id: max_on_ms
+                value: "${max_on_test}"
+            - logger.log: "TEST MODE: lettura 5s, cooldown 5s, cutoff 30s"
+          else:
+            - logger.log: "NORMAL MODE: lettura 10min, cooldown 5min, cutoff 5min"
+      - script.execute: do_read_cycle
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+logger:
+
+globals:
+  - id: last_pump_off_ms
+    type: uint32_t
+    initial_value: '0'
+  - id: pump_ran_before
+    type: bool
+    initial_value: 'false'
+  - id: read_interval_ms
+    type: uint32_t
+    initial_value: "${read_interval_normal}"
+  - id: cooldown_ms
+    type: uint32_t
+    initial_value: "${cooldown_normal}"
+  - id: max_on_ms
+    type: uint32_t
+    initial_value: "${max_on_normal}"
+  - id: last_read_ms
+    type: uint32_t
+    initial_value: '0'
+
+switch:
+  # Alimentazione condivisa dei 3 sensori (via transistor NPN low-side su
+  # GPIO25). Vedi bench/wiring_soil_3sensor.yaml.
+  - platform: gpio
+    pin: GPIO25
+    id: soil_power_switch
+    restore_mode: ALWAYS_OFF
+
+  # Relè, trigger low-level (Songle SRD, stessa convenzione di WIRING.md).
+  - platform: gpio
+    pin:
+      number: GPIO27
+      inverted: true
+    id: relay_pompa
+    restore_mode: ALWAYS_OFF
+
+sensor:
+  - platform: adc
+    pin: GPIO32
+    id: soil_moisture_1
+    name: "Soil Moisture 1 (V)"
+    update_interval: never
+    attenuation: 12db
+
+  - platform: adc
+    pin: GPIO33
+    id: soil_moisture_2
+    name: "Soil Moisture 2 (V)"
+    update_interval: never
+    attenuation: 12db
+
+  - platform: adc
+    pin: GPIO34
+    id: soil_moisture_3
+    name: "Soil Moisture 3 (V)"
+    update_interval: never
+    attenuation: 12db
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: ${mode_pin}
+      mode: INPUT_PULLUP
+      inverted: true  # LOW (GND) = test mode attivo
+    id: test_mode_sensor
+
+  - platform: analog_threshold
+    id: soil_dry_1
+    name: "Soil 1 Dry"
+    sensor_id: soil_moisture_1
+    threshold:
+      upper: ${soil_dry_threshold}
+      lower: ${soil_wet_threshold}
+
+  - platform: analog_threshold
+    id: soil_dry_2
+    name: "Soil 2 Dry"
+    sensor_id: soil_moisture_2
+    threshold:
+      upper: ${soil_dry_threshold}
+      lower: ${soil_wet_threshold}
+
+  - platform: analog_threshold
+    id: soil_dry_3
+    name: "Soil 3 Dry"
+    sensor_id: soil_moisture_3
+    threshold:
+      upper: ${soil_dry_threshold}
+      lower: ${soil_wet_threshold}
+
+  - platform: template
+    id: irrigation_needed
+    name: "Irrigation Needed"
+    lambda: |-
+      return id(soil_dry_1).state || id(soil_dry_2).state || id(soil_dry_3).state;
+    on_press:
+      # OR: almeno 1 sensore su 3 e' secco
+      then:
+        - if:
+            condition:
+              lambda: 'return !id(pump_ran_before) || (millis() - id(last_pump_off_ms)) > id(cooldown_ms);'
+            then:
+              - globals.set:
+                  id: pump_ran_before
+                  value: 'true'
+              - switch.turn_on: relay_pompa
+              - script.execute: pump_safety_cutoff
+    on_release:
+      # Tutti e 3 sopra soglia bagnato
+      then:
+        - script.stop: pump_safety_cutoff
+        - switch.turn_off: relay_pompa
+        - globals.set:
+            id: last_pump_off_ms
+            value: !lambda 'return millis();'
+
+script:
+  - id: pump_safety_cutoff
+    then:
+      - delay: !lambda 'return id(max_on_ms);'
+      - logger.log: "Safety cutoff: max ON time raggiunto, spengo pompa"
+      - switch.turn_off: relay_pompa
+      - globals.set:
+          id: last_pump_off_ms
+          value: !lambda 'return millis();'
+
+  - id: do_read_cycle
+    then:
+      - globals.set:
+          id: last_read_ms
+          value: !lambda 'return millis();'
+      - switch.turn_on: soil_power_switch
+      - delay: ${sensor_settle_time}
+      - component.update: soil_moisture_1
+      - component.update: soil_moisture_2
+      - component.update: soil_moisture_3
+      - delay: 200ms
+      - switch.turn_off: soil_power_switch
+
+interval:
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            lambda: 'return (millis() - id(last_read_ms)) >= id(read_interval_ms);'
+          then:
+            - script.execute: do_read_cycle

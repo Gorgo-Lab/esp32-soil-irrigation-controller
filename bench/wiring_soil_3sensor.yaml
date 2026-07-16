@@ -1,0 +1,220 @@
+metadata:
+  title: Controller Pompa — Setup banco sensori umidità (ESP32 + Relè + 3x Capacitive Soil Moisture v2.0)
+  description: >
+    Setup di solo sviluppo logica: ESP32 + relè (per sentire lo scatto) +
+    3 sensori capacitivi di umidità terreno alimentati in comune tramite
+    switch NPN low-side. Pompa, alimentatore di potenza e diodo di ricircolo
+    NON collegati in questa variante — vedi bench/wiring_lab_test.yaml /
+    DOCS/wiring.yaml per quella parte quando si passa al carico reale.
+  avvertenze: >
+    Sensori alimentati a 3.3V (non 5V): a 3.3V l'uscita AOUT resta sempre
+    sotto la tensione massima ammessa sul pin ADC dell'ESP32 (3.3V), nessun
+    partitore resistivo necessario. Se in futuro si alimentano a 5V, serve
+    un partitore su ciascun AOUT prima dell'ADC. Il ritorno GND dei 3
+    sensori converge su un unico nodo (collettore Q1): usare una basetta/
+    morsettiera comune, non torcere 3 fili direttamente su un pin THT senza
+    supporto meccanico. Relè con jumper VCC/JD-VCC inserito (alimentazione
+    unica da ESP32 5V, come in wiring_lab_test.yaml).
+
+connectors:
+  ESP32:
+    type: ESP32 dev board
+    subtype: alimentato via USB (banco)
+    pinlabels: ['5V', '3V3', GND, GPIO25, GPIO27, GPIO32, GPIO33, GPIO34]
+
+  RELAY:
+    type: Relay module
+    subtype: singolo canale, active-low (S / + / -)
+    pinlabels: [S, '+', '-', COM, 'NO']
+
+  SOIL1:
+    type: Capacitive Soil Moisture Sensor v2.0
+    subtype: 3.3-5.5V, uscita analogica invertita (secco=tensione alta)
+    pinlabels: [VCC, GND, AOUT]
+
+  SOIL2:
+    type: Capacitive Soil Moisture Sensor v2.0
+    subtype: 3.3-5.5V, uscita analogica invertita (secco=tensione alta)
+    pinlabels: [VCC, GND, AOUT]
+
+  SOIL3:
+    type: Capacitive Soil Moisture Sensor v2.0
+    subtype: 3.3-5.5V, uscita analogica invertita (secco=tensione alta)
+    pinlabels: [VCC, GND, AOUT]
+
+  Q1:
+    type: Transistor NPN
+    subtype: 2N2222 / BC337 o equivalente — switch low-side condiviso alimentazione sensori
+    pinlabels: [B, C, E]
+
+  R1:
+    type: Resistore
+    subtype: 1kΩ — limitazione base Q1
+    pinlabels: ['1', '2']
+
+cables:
+  W1:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [RD]
+    notes: 'Cavetto Arduino: ESP32 5V (VBUS) → Relay + (jumper VCC/JD-VCC inserito sul modulo)'
+
+  W2:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [BK]
+    notes: 'Cavetto Arduino: ESP32 GND → Relay -'
+
+  W3:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [YE]
+    notes: 'Cavetto Arduino: ESP32 GPIO27 → Relay S (segnale, active-low)'
+
+  W4:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [RD]
+    notes: 'ESP32 3V3 → Soil1 VCC'
+
+  W5:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [RD]
+    notes: 'ESP32 3V3 → Soil2 VCC'
+
+  W6:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [RD]
+    notes: 'ESP32 3V3 → Soil3 VCC'
+
+  W7:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [BK]
+    notes: 'Soil1 GND → Q1 C (nodo comune ritorno sensori, vedi avvertenze)'
+
+  W8:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [BK]
+    notes: 'Soil2 GND → Q1 C (nodo comune ritorno sensori)'
+
+  W9:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [BK]
+    notes: 'Soil3 GND → Q1 C (nodo comune ritorno sensori)'
+
+  W10:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [BK]
+    notes: 'Q1 E → ESP32 GND'
+
+  W11:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [OG]
+    notes: 'ESP32 GPIO25 → R1 (pin 1) — comando switch alimentazione sensori'
+
+  W12:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [OG]
+    notes: 'R1 (pin 2) → Q1 B'
+
+  W13:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [GN]
+    notes: 'ESP32 GPIO32 → Soil1 AOUT (segnale analogico)'
+
+  W14:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [GN]
+    notes: 'ESP32 GPIO33 → Soil2 AOUT (segnale analogico)'
+
+  W15:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [GN]
+    notes: 'ESP32 GPIO34 → Soil3 AOUT (segnale analogico)'
+
+connections:
+  -
+    - ESP32: ['5V']
+    - W1: [1]
+    - RELAY: ['+']
+
+  -
+    - ESP32: [GND]
+    - W2: [1]
+    - RELAY: ['-']
+
+  -
+    - ESP32: [GPIO27]
+    - W3: [1]
+    - RELAY: [S]
+
+  -
+    - ESP32: ['3V3']
+    - W4: [1]
+    - SOIL1: [VCC]
+
+  -
+    - ESP32: ['3V3']
+    - W5: [1]
+    - SOIL2: [VCC]
+
+  -
+    - ESP32: ['3V3']
+    - W6: [1]
+    - SOIL3: [VCC]
+
+  -
+    - SOIL1: [GND]
+    - W7: [1]
+    - Q1: [C]
+
+  -
+    - SOIL2: [GND]
+    - W8: [1]
+    - Q1: [C]
+
+  -
+    - SOIL3: [GND]
+    - W9: [1]
+    - Q1: [C]
+
+  -
+    - Q1: [E]
+    - W10: [1]
+    - ESP32: [GND]
+
+  -
+    - ESP32: [GPIO25]
+    - W11: [1]
+    - R1: ['1']
+
+  -
+    - R1: ['2']
+    - W12: [1]
+    - Q1: [B]
+
+  -
+    - ESP32: [GPIO32]
+    - W13: [1]
+    - SOIL1: [AOUT]
+
+  -
+    - ESP32: [GPIO33]
+    - W14: [1]
+    - SOIL2: [AOUT]
+
+  -
+    - ESP32: [GPIO34]
+    - W15: [1]
+    - SOIL3: [AOUT]

@@ -1,0 +1,81 @@
+# Flagship — firmware principale (ESP32 + driver MOSFET XY-MOS + pompa).
+# Cablaggio: vedi DOCS/wiring.yaml (WireViz). La catena di alimentazione da
+# batteria reale (fusibile + buck converter) non è ancora ridisegnata per il
+# MOSFET — vedi archive/WIRING.md per il riferimento concettuale (era per il
+# relè, il dimensionamento batteria/fusibile/buck resta valido).
+#
+# Varianti di sviluppo/test (logica sensori, banchi relè): vedi bench/
+
+substitutions:
+  pump_on_time_normal:  "300000"  # ms — 5 minuti
+  pump_off_time_normal: "600000"  # ms — 10 minuti
+  pump_on_time_test:  "5000"   # ms — 5 secondi
+  pump_off_time_test: "5000"   # ms — 5 secondi
+  mode_pin: GPIO4               # collegato a GND = test mode, floating = modalità normale
+
+esphome:
+  name: controller-pompa
+  on_boot:
+    priority: -100
+    then:
+      - if:
+          condition:
+            binary_sensor.is_on: test_mode_sensor
+          then:
+            - globals.set:
+                id: on_time_ms
+                value: "${pump_on_time_test}"
+            - globals.set:
+                id: off_time_ms
+                value: "${pump_off_time_test}"
+            - logger.log: "TEST MODE: 5s/5s"
+          else:
+            - logger.log: "NORMAL MODE: 5min/10min"
+      - script.execute: pump_on_phase
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+logger:
+
+globals:
+  - id: on_time_ms
+    type: int
+    initial_value: "${pump_on_time_normal}"
+  - id: off_time_ms
+    type: int
+    initial_value: "${pump_off_time_normal}"
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: ${mode_pin}
+      mode: INPUT_PULLUP
+      inverted: true  # LOW (GND) = test mode attivo
+    id: test_mode_sensor
+
+switch:
+  # GPIO27 -> pin TRIG del modulo driver MOSFET (XY-MOS), active-high.
+  # Vedi DOCS/wiring.yaml (diodo di ricircolo 1N5408 obbligatorio
+  # ai terminali della pompa).
+  - platform: gpio
+    pin:
+      number: GPIO27
+      inverted: false  # active-high: HIGH = MOSFET acceso
+    id: relay_pompa
+    restore_mode: ALWAYS_OFF
+
+script:
+  - id: pump_on_phase
+    then:
+      - switch.turn_on: relay_pompa
+      - delay: !lambda return id(on_time_ms);
+      - script.execute: pump_off_phase
+
+  - id: pump_off_phase
+    then:
+      - switch.turn_off: relay_pompa
+      - delay: !lambda return id(off_time_ms);
+      - script.execute: pump_on_phase
