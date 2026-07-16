@@ -1,17 +1,44 @@
-# Flagship — firmware principale (ESP32 + driver MOSFET XY-MOS + pompa).
+# Flagship — firmware principale (ESP32 + driver MOSFET XY-MOS + pompa +
+# sensore capacitivo di umidità del terreno, 1x).
 # Cablaggio: vedi DOCS/wiring.yaml (WireViz). La catena di alimentazione da
 # batteria reale (fusibile + buck converter) non è ancora ridisegnata per il
 # MOSFET — vedi archive/WIRING.md per il riferimento concettuale (era per il
 # relè, il dimensionamento batteria/fusibile/buck resta valido).
 #
-# Varianti di sviluppo/test (logica sensori, banchi relè): vedi bench/
+# Logica sensori portata da bench/soil_1sensor.yaml (validata su relè):
+# stessa logica, stessa struttura, unica differenza reale è la polarità del
+# trigger di potenza (MOSFET active-high invece di relè active-low).
+#
+# Varianti di sviluppo/test (relè, banco): vedi bench/
 
 substitutions:
-  pump_on_time_normal:  "300000"  # ms — 5 minuti
-  pump_off_time_normal: "600000"  # ms — 10 minuti
-  pump_on_time_test:  "5000"   # ms — 5 secondi
-  pump_off_time_test: "5000"   # ms — 5 secondi
+  soil_dry_threshold: "2.5"    # V — sopra = terreno secco (pompa ON)
+  soil_wet_threshold: "1.8"    # V — sotto = terreno bagnato (pompa OFF)
+  # Valori di partenza validati su un'unità di test reale (letture ~2.65V
+  # secco, ~1.0V bagnato, ampio margine). Ricalibrare se usi un sensore
+  # diverso: guarda i log "Soil Moisture (V)" in aria secca e in acqua.
+
+  # assestamento dopo ogni accensione sensore (non dipende da test/normale)
+  # necessario perché il circuito capacitivo ha bisogno di qualche istante
+  # per stabilizzarsi dopo l'accensione
+  sensor_settle_time: 2s
+
   mode_pin: GPIO4               # collegato a GND = test mode, floating = modalità normale
+
+  read_interval_test: "5000"      # ms — test: lettura ogni 5s
+  read_interval_normal: "600000"  # ms — normale: ogni 10 min
+
+  # Cooldown: dopo che la pompa si spegne, deve passare almeno cooldown_ms prima che possa riaccendersi
+  # anche se il sensore torna a dire "secco".
+  # Serve a evitare cicli ravvicinati che stresserebbero pompa e MOSFET.
+  cooldown_test: "5000"           # ms — test: 5s
+  cooldown_normal: "300000"       # ms — normale: 5 min
+
+  # Cutoff di sicurezza: tempo massimo che la pompa può restare accesa ininterrottamente (max_on_ms),
+  # indipendente da cosa dice il sensore. Scaduto questo tempo si spegne comunque da sola.
+  # Serve a proteggere la pompa se il sensore resta bloccato su "secco" (guasto, cavo staccato, lettura anomala).
+  max_on_test: "30000"            # ms — test: cutoff sicurezza 30s
+  max_on_normal: "300000"         # ms — normale: cutoff sicurezza 5 min
 
 esphome:
   name: controller-pompa
@@ -23,15 +50,18 @@ esphome:
             binary_sensor.is_on: test_mode_sensor
           then:
             - globals.set:
-                id: on_time_ms
-                value: "${pump_on_time_test}"
+                id: read_interval_ms
+                value: "${read_interval_test}"
             - globals.set:
-                id: off_time_ms
-                value: "${pump_off_time_test}"
-            - logger.log: "TEST MODE: 5s/5s"
+                id: cooldown_ms
+                value: "${cooldown_test}"
+            - globals.set:
+                id: max_on_ms
+                value: "${max_on_test}"
+            - logger.log: "TEST MODE: lettura 5s, cooldown 5s, cutoff 30s"
           else:
-            - logger.log: "NORMAL MODE: 5min/10min"
-      - script.execute: pump_on_phase
+            - logger.log: "NORMAL MODE: lettura 10min, cooldown 5min, cutoff 5min"
+      - script.execute: do_read_cycle
 
 esp32:
   board: esp32dev
@@ -41,12 +71,24 @@ esp32:
 logger:
 
 globals:
-  - id: on_time_ms
-    type: int
-    initial_value: "${pump_on_time_normal}"
-  - id: off_time_ms
-    type: int
-    initial_value: "${pump_off_time_normal}"
+  - id: last_pump_off_ms
+    type: uint32_t
+    initial_value: '0'
+  - id: pump_ran_before
+    type: bool
+    initial_value: 'false'
+  - id: read_interval_ms
+    type: uint32_t
+    initial_value: "${read_interval_normal}"
+  - id: cooldown_ms
+    type: uint32_t
+    initial_value: "${cooldown_normal}"
+  - id: max_on_ms
+    type: uint32_t
+    initial_value: "${max_on_normal}"
+  - id: last_read_ms
+    type: uint32_t
+    initial_value: '0'
 
 binary_sensor:
   - platform: gpio
@@ -56,26 +98,91 @@ binary_sensor:
       inverted: true  # LOW (GND) = test mode attivo
     id: test_mode_sensor
 
+  - platform: analog_threshold
+    id: soil_dry
+    name: "Soil Dry"
+    sensor_id: soil_moisture
+    threshold:
+      upper: ${soil_dry_threshold}
+      lower: ${soil_wet_threshold}
+    on_press:
+      # Terreno secco.
+      # NOTA: scatta solo sul fronte OFF->ON. Se pump_safety_cutoff spegne la
+      # pompa mentre il sensore legge ancora "secco" (mai sceso sotto la
+      # soglia bagnata), lo stato resta true e questo blocco NON scatta più:
+      # la pompa non riparte da sola finché non c'è un ciclo completo
+      # bagnato->secco (serve on_release seguito da un nuovo on_press).
+      then:
+        - if:
+            condition:
+              lambda: 'return !id(pump_ran_before) || (millis() - id(last_pump_off_ms)) > id(cooldown_ms);'
+            then:
+              - globals.set:
+                  id: pump_ran_before
+                  value: 'true'
+              - switch.turn_on: pump_mosfet
+              - script.execute: pump_safety_cutoff
+    on_release:
+      # Terreno tornato sopra soglia bagnato
+      then:
+        - script.stop: pump_safety_cutoff
+        - switch.turn_off: pump_mosfet
+        - globals.set:
+            id: last_pump_off_ms
+            value: !lambda 'return millis();'
+
 switch:
+  # Alimentazione diretta del sensore da GPIO (vedi DOCS/wiring.yaml)
+  - platform: gpio
+    pin: GPIO25
+    id: soil_power_switch
+    restore_mode: ALWAYS_OFF
+
   # GPIO27 -> pin TRIG del modulo driver MOSFET (XY-MOS), active-high.
-  # Vedi DOCS/wiring.yaml (diodo di ricircolo 1N5408 obbligatorio
-  # ai terminali della pompa).
+  # Diodo di ricircolo 1N5408 obbligatorio ai terminali della pompa.
   - platform: gpio
     pin:
       number: GPIO27
       inverted: false  # active-high: HIGH = MOSFET acceso
-    id: relay_pompa
+    id: pump_mosfet
     restore_mode: ALWAYS_OFF
 
-script:
-  - id: pump_on_phase
-    then:
-      - switch.turn_on: relay_pompa
-      - delay: !lambda return id(on_time_ms);
-      - script.execute: pump_off_phase
+sensor:
+  - platform: adc
+    pin: GPIO32
+    id: soil_moisture
+    name: "Soil Moisture (V)"
+    update_interval: never
+    attenuation: 12db
 
-  - id: pump_off_phase
+script:
+  # Dopo questo cutoff la pompa NON riparte da sola anche se il sensore
+  # legge ancora "secco" — vedi nota su on_press del binary_sensor soil_dry.
+  - id: pump_safety_cutoff
     then:
-      - switch.turn_off: relay_pompa
-      - delay: !lambda return id(off_time_ms);
-      - script.execute: pump_on_phase
+      - delay: !lambda 'return id(max_on_ms);'
+      - logger.log: "Safety cutoff: max ON time raggiunto, spengo pompa"
+      - switch.turn_off: pump_mosfet
+      - globals.set:
+          id: last_pump_off_ms
+          value: !lambda 'return millis();'
+
+  - id: do_read_cycle
+    then:
+      - globals.set:
+          id: last_read_ms
+          value: !lambda 'return millis();'
+      - switch.turn_on: soil_power_switch
+      - delay: ${sensor_settle_time}
+      - component.update: soil_moisture
+      - delay: 200ms
+      - switch.turn_off: soil_power_switch
+
+interval:
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            lambda: 'return (millis() - id(last_read_ms)) >= id(read_interval_ms);'
+          then:
+            - script.execute: do_read_cycle

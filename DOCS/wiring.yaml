@@ -1,14 +1,16 @@
 metadata:
-  title: Controller Pompa — Wiring di riferimento (MOSFET)
+  title: Controller Pompa — Wiring di riferimento (MOSFET + sensore)
   description: >
-    Topologia di commutazione scelta per il flagship: modulo driver MOSFET
-    (XY-MOS, switch low-side) al posto del relè meccanico. Documenta la parte
-    validata: ESP32 + MOSFET + pompa, alimentati da un alimentatore switching
-    da banco (12V/2A). NON documenta ancora la catena di alimentazione da
-    batteria reale (fusibile + buck converter 12V→5V) che serve per l'uso
-    reale — quella andrà adattata dal ramo relè, vedi archive/WIRING.md per
-    il riferimento concettuale (batteria/fusibile/buck), da ridisegnare per
-    il MOSFET.
+    Topologia scelta per il flagship: modulo driver MOSFET (XY-MOS, switch
+    low-side) al posto del relè meccanico, più 1x sensore capacitivo di
+    umidità del terreno (alimentazione diretta da GPIO, nessun transistor
+    necessario per un solo sensore). Documenta la parte validata: ESP32 +
+    MOSFET + pompa + sensore, alimentati da un alimentatore switching da
+    banco (12V/2A) per la parte pompa. NON documenta ancora la catena di
+    alimentazione da batteria reale (fusibile + buck converter 12V→5V) che
+    serve per l'uso reale — quella andrà adattata dal ramo relè, vedi
+    archive/WIRING.md per il riferimento concettuale (batteria/fusibile/buck),
+    da ridisegnare per il MOSFET.
   avvertenze: >
     Il MOSFET è uno switch LOW-SIDE: OUT+ è collegato internamente in modo
     permanente a VIN+ (sempre alimentato), il MOSFET commuta solo il ritorno
@@ -19,14 +21,23 @@ metadata:
     (verificare comunque se la board ha già un diodo di protezione integrato,
     non dedurlo dalla sola serigrafia dei pin). Massa comune OBBLIGATORIA tra
     ESP32 GND, MOSFET GND e Alimentatore (-). Non alimentare contemporaneamente
-    VIN (da fonte esterna) e USB sull'ESP32.
+    VIN (da fonte esterna) e USB sull'ESP32. Sensore alimentato a 3.3V (non
+    5V): l'uscita AOUT resta sempre sotto la tensione massima ammessa sul pin
+    ADC, nessun partitore necessario. Sensore acceso solo per la finestra di
+    lettura (GPIO25), non in continuo — vedi note duty-cycle in
+    controller_pompa.yaml.
 
 connectors:
   ESP32:
     type: ESP32 dev board
     subtype: alimentato via USB dal Mac
-    pinlabels: [GND, GPIO27, GPIO4]
-    notes: 'Ponticello test mode: collegare GPIO4 a GND (stessa scheda) per ciclo 5s ON / 5s OFF'
+    pinlabels: [GND, '3V3', GPIO25, GPIO27, GPIO32, GPIO4]
+    notes: 'Ponticello test mode: collegare GPIO4 a GND (stessa scheda) per timing rapido'
+
+  SOIL:
+    type: Capacitive Soil Moisture Sensor v2.0
+    subtype: 3.3-5.5V, uscita analogica invertita (secco=tensione alta)
+    pinlabels: [VCC, GND, AOUT]
 
   ALIMENTATORE:
     type: Alimentatore switching
@@ -105,6 +116,24 @@ cables:
     colors: [BK]
     notes: 'Diodo anodo → Pompa (-)'
 
+  W10:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [OG]
+    notes: 'ESP32 GPIO25 → Soil VCC (alimentazione diretta, nessun transistor)'
+
+  W11:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [BK]
+    notes: 'Soil GND → ESP32 GND'
+
+  W12:
+    wirecount: 1
+    gauge: 0.25 mm2
+    colors: [GN]
+    notes: 'ESP32 GPIO32 → Soil AOUT (segnale analogico)'
+
 connections:
   -
     - ALIMENTATORE: ['+']
@@ -150,3 +179,18 @@ connections:
     - DIODO: [A]
     - W9: [1]
     - POMPA: ['-']
+
+  -
+    - ESP32: [GPIO25]
+    - W10: [1]
+    - SOIL: [VCC]
+
+  -
+    - SOIL: [GND]
+    - W11: [1]
+    - ESP32: [GND]
+
+  -
+    - ESP32: [GPIO32]
+    - W12: [1]
+    - SOIL: [AOUT]
