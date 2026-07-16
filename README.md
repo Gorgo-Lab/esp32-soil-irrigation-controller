@@ -1,4 +1,4 @@
-# Controller Pompa ESP32
+# ESP32 Soil Irrigation Controller
 
 Firmware ESPHome per il controllo automatico di una pompa 12V DC, con driver MOSFET e irrigazione basata su un sensore capacitivo di umidità del terreno.
 
