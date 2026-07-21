@@ -37,7 +37,7 @@ substitutions:
   # Cutoff di sicurezza: tempo massimo che la pompa può restare accesa ininterrottamente (max_on_ms),
   # indipendente da cosa dice il sensore. Scaduto questo tempo si spegne comunque da sola.
   # Serve a proteggere la pompa se il sensore resta bloccato su "secco" (guasto, cavo staccato, lettura anomala).
-  max_on_test: "30000"            # ms — test: cutoff sicurezza 30s
+  max_on_test: "300000"            # ms — test: cutoff sicurezza 30s
   max_on_normal: "300000"         # ms — normale: cutoff sicurezza 5 min
 
 esphome:
@@ -68,6 +68,12 @@ esp32:
   framework:
     type: arduino
 
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+
 logger:
 
 globals:
@@ -89,6 +95,13 @@ globals:
   - id: last_read_ms
     type: uint32_t
     initial_value: '0'
+  - id: cutoff_lockout
+    type: bool
+    initial_value: 'false'
+    # true solo quando pump_safety_cutoff spegne la pompa: blocca la riattivazione
+    # finché non c'è un ciclo bagnato->secco completo (vedi on_release). Distinto
+    # dal blocco per cooldown, che invece si sblocca da solo appena scade
+    # (vedi retry periodico in interval:).
 
 binary_sensor:
   - platform: gpio
@@ -107,11 +120,13 @@ binary_sensor:
       lower: ${soil_wet_threshold}
     on_press:
       # Terreno secco.
-      # NOTA: scatta solo sul fronte OFF->ON. Se pump_safety_cutoff spegne la
-      # pompa mentre il sensore legge ancora "secco" (mai sceso sotto la
-      # soglia bagnata), lo stato resta true e questo blocco NON scatta più:
-      # la pompa non riparte da sola finché non c'è un ciclo completo
-      # bagnato->secco (serve on_release seguito da un nuovo on_press).
+      # NOTA: scatta solo sul fronte OFF->ON. Se il cooldown non è ancora
+      # scaduto in questo istante, la condizione sotto fallisce e QUESTO
+      # blocco non scatta più finché lo stato resta true — ma il retry
+      # periodico in interval: ricontrolla e attiva la pompa appena il
+      # cooldown scade, se il terreno è ancora secco. Il cutoff invece è
+      # definitivo: usa cutoff_lockout per bloccare anche il retry
+      # periodico, finché non c'è un ciclo completo bagnato->secco.
       then:
         - if:
             condition:
@@ -123,13 +138,17 @@ binary_sensor:
               - switch.turn_on: pump_mosfet
               - script.execute: pump_safety_cutoff
     on_release:
-      # Terreno tornato sopra soglia bagnato
+      # Terreno tornato sopra soglia bagnato: fine di qualunque blocco,
+      # cutoff incluso.
       then:
         - script.stop: pump_safety_cutoff
         - switch.turn_off: pump_mosfet
         - globals.set:
             id: last_pump_off_ms
             value: !lambda 'return millis();'
+        - globals.set:
+            id: cutoff_lockout
+            value: 'false'
 
 switch:
   # Alimentazione diretta del sensore da GPIO (vedi DOCS/wiring.yaml)
@@ -157,7 +176,8 @@ sensor:
 
 script:
   # Dopo questo cutoff la pompa NON riparte da sola anche se il sensore
-  # legge ancora "secco" — vedi nota su on_press del binary_sensor soil_dry.
+  # legge ancora "secco" — cutoff_lockout blocca anche il retry periodico,
+  # finché on_release (ciclo bagnato->secco) non lo resetta.
   - id: pump_safety_cutoff
     then:
       - delay: !lambda 'return id(max_on_ms);'
@@ -166,6 +186,9 @@ script:
       - globals.set:
           id: last_pump_off_ms
           value: !lambda 'return millis();'
+      - globals.set:
+          id: cutoff_lockout
+          value: 'true'
 
   - id: do_read_cycle
     then:
@@ -186,3 +209,16 @@ interval:
             lambda: 'return (millis() - id(last_read_ms)) >= id(read_interval_ms);'
           then:
             - script.execute: do_read_cycle
+      - if:
+          # Retry: se il fronte secco è scattato durante il cooldown (quindi
+          # on_press non ha attivato la pompa) e il terreno è ancora secco,
+          # riprova appena il cooldown scade. Non si applica dopo un cutoff
+          # (cutoff_lockout blocca fino al prossimo ciclo bagnato->secco).
+          condition:
+            lambda: |-
+              return id(soil_dry)->state && !id(pump_mosfet).state
+                  && !id(cutoff_lockout)
+                  && (millis() - id(last_pump_off_ms)) > id(cooldown_ms);
+          then:
+            - switch.turn_on: pump_mosfet
+            - script.execute: pump_safety_cutoff
